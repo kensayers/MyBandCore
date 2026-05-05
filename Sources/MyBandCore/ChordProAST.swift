@@ -10,47 +10,21 @@ public struct Song: Equatable, Sendable {
 
 public struct Section: Equatable, Sendable {
     public var header: String
-    public var lines: [Line]
+    public var bars: [Bar]
 
-    public init(header: String, lines: [Line]) {
+    public init(header: String, bars: [Bar]) {
         self.header = header
-        self.lines = lines
-    }
-}
-
-public enum Line: Equatable, Sendable {
-    case chordLyric([ChordLyricFragment])
-    case bars([Bar])
-    case tab(TabLine)
-    case lyrics(String)
-    case empty
-}
-
-public struct ChordLyricFragment: Equatable, Sendable {
-    public var chord: Chord?
-    public var text: String
-
-    public init(chord: Chord? = nil, text: String) {
-        self.chord = chord
-        self.text = text
+        self.bars = bars
     }
 }
 
 public struct Bar: Equatable, Sendable {
     public var chords: [Chord]
+    public var lyrics: String
 
-    public init(chords: [Chord]) {
+    public init(chords: [Chord], lyrics: String = "") {
         self.chords = chords
-    }
-}
-
-public struct TabLine: Equatable, Sendable {
-    public var string: String
-    public var content: String
-
-    public init(string: String, content: String) {
-        self.string = string
-        self.content = content
+        self.lyrics = lyrics
     }
 }
 

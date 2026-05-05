@@ -8,24 +8,24 @@ public struct ChordProParser: Sendable {
         let rawLines = input.components(separatedBy: .newlines)
         var sections: [Section] = []
         var currentHeader: String?
-        var currentLines: [Line] = []
+        var currentBars: [Bar] = []
 
         for rawLine in rawLines {
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
             if let header = parseSectionHeader(trimmed) {
-                if currentHeader != nil || !currentLines.isEmpty {
-                    sections.append(Section(header: currentHeader ?? "", lines: currentLines))
+                if currentHeader != nil || !currentBars.isEmpty {
+                    sections.append(Section(header: currentHeader ?? "", bars: currentBars))
                 }
                 currentHeader = header
-                currentLines = []
+                currentBars = []
             } else {
-                currentLines.append(parseLine(trimmed))
+                currentBars.append(contentsOf: parseBarsFromLine(trimmed))
             }
         }
 
-        if currentHeader != nil || !currentLines.isEmpty {
-            sections.append(Section(header: currentHeader ?? "", lines: currentLines))
+        if currentHeader != nil || !currentBars.isEmpty {
+            sections.append(Section(header: currentHeader ?? "", bars: currentBars))
         }
 
         return Song(sections: sections)
@@ -44,36 +44,27 @@ public struct ChordProParser: Sendable {
         guard line.hasPrefix("["), line.hasSuffix("]"),
               line.count >= 3 else { return nil }
         let inner = String(line.dropFirst().dropLast())
-        let base = inner.lowercased()
+        let words = inner.lowercased()
             .trimmingCharacters(in: .whitespaces)
             .components(separatedBy: .whitespaces)
-            .first ?? ""
-        guard Self.sectionPatterns.contains(base) else { return nil }
+        guard words.contains(where: { Self.sectionPatterns.contains($0) }) else { return nil }
         return inner
     }
 
-    // MARK: - Line
+    // MARK: - Line to Bars
 
-    func parseLine(_ line: String) -> Line {
-        if line.isEmpty {
-            return .empty
-        }
-        if isTabLine(line) {
-            return .tab(parseTabLine(line))
-        }
-        if line.contains("|") {
-            return .bars(parseBars(line))
-        }
-        if line.contains("[") {
-            return .chordLyric(parseChordLyric(line))
-        }
+    func parseBarsFromLine(_ line: String) -> [Bar] {
+        if line.isEmpty { return [] }
+        if isTabLine(line) { return [] }
+        if line.contains("|") { return parsePipeBars(line) }
+        if line.contains("[") { return parseChordLyricBars(line) }
         if isChordLine(line) {
-            return .bars(parseChordLine(line).map { Bar(chords: [$0]) })
+            return parseChordLine(line).map { Bar(chords: [$0]) }
         }
-        return .lyrics(line)
+        return [Bar(chords: [], lyrics: line)]
     }
 
-    // MARK: - Tab Lines
+    // MARK: - Tab Line Detection
 
     func isTabLine(_ line: String) -> Bool {
         guard let first = line.first, "ABCDEFGabcdefg".contains(first) else { return false }
@@ -89,15 +80,6 @@ public struct ChordProParser: Sendable {
             }
         }
         return false
-    }
-
-    func parseTabLine(_ line: String) -> TabLine {
-        guard let pipeIndex = line.firstIndex(of: "|") else {
-            return TabLine(string: "", content: line)
-        }
-        let stringName = String(line[line.startIndex..<pipeIndex])
-        let content = String(line[pipeIndex...])
-        return TabLine(string: stringName, content: content)
     }
 
     // MARK: - Chord Lines
@@ -128,13 +110,14 @@ public struct ChordProParser: Sendable {
             }
     }
 
-    // MARK: - Bar Lines
+    // MARK: - Pipe-Delimited Bars
 
-    func parseBars(_ line: String) -> [Bar] {
+    func parsePipeBars(_ line: String) -> [Bar] {
         line.split(separator: "|", omittingEmptySubsequences: true)
-            .compactMap { segment in
-                let chords = segment
-                    .trimmingCharacters(in: .whitespaces)
+            .compactMap { segment -> Bar? in
+                let text = segment.trimmingCharacters(in: .whitespaces)
+                if text.isEmpty { return nil }
+                let chords = text
                     .split(separator: " ", omittingEmptySubsequences: true)
                     .compactMap { token -> Chord? in
                         var t = String(token)
@@ -148,9 +131,45 @@ public struct ChordProParser: Sendable {
             }
     }
 
-    // MARK: - Chord-Lyric Lines
+    // MARK: - Chord-Lyric Bars
 
-    func parseChordLyric(_ line: String) -> [ChordLyricFragment] {
+    func parseChordLyricBars(_ line: String) -> [Bar] {
+        let fragments = parseChordLyricFragments(line)
+        var bars: [Bar] = []
+        var pendingLyrics = ""
+
+        for fragment in fragments {
+            if let chord = fragment.chord {
+                bars.append(Bar(chords: [chord], lyrics: pendingLyrics + fragment.text))
+                pendingLyrics = ""
+            } else {
+                pendingLyrics += fragment.text
+            }
+        }
+
+        if !pendingLyrics.isEmpty {
+            if bars.isEmpty {
+                bars.append(Bar(chords: [], lyrics: pendingLyrics))
+            } else {
+                bars[bars.count - 1].lyrics += pendingLyrics
+            }
+        }
+
+        for i in bars.indices {
+            while bars[i].lyrics.hasSuffix(" ") { bars[i].lyrics.removeLast() }
+        }
+
+        return bars
+    }
+
+    // MARK: - Internal Fragment Parsing
+
+    private struct ChordLyricFragment {
+        var chord: Chord?
+        var text: String
+    }
+
+    private func parseChordLyricFragments(_ line: String) -> [ChordLyricFragment] {
         var fragments: [ChordLyricFragment] = []
         var remaining = line[...]
 

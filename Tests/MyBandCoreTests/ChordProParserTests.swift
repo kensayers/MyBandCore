@@ -70,92 +70,94 @@ struct ChordProParserTests {
         #expect(parser.parseSectionHeader("[Bb]") == nil)
     }
 
-    // MARK: - Line Parsing
+    // MARK: - Line to Bars
 
-    @Test func parsesEmptyLine() {
-        #expect(parser.parseLine("") == .empty)
+    @Test func emptyLineProducesNoBars() {
+        #expect(parser.parseBarsFromLine("").isEmpty)
     }
 
-    @Test func parsesPlainLyricLine() {
-        #expect(parser.parseLine("Just a plain line") == .lyrics("Just a plain line"))
+    @Test func plainTextProducesLyricsBar() {
+        let bars = parser.parseBarsFromLine("Just a plain line")
+        #expect(bars.count == 1)
+        #expect(bars[0].chords.isEmpty)
+        #expect(bars[0].lyrics == "Just a plain line")
     }
 
-    @Test func detectsBarLine() {
-        if case .bars(let bars) = parser.parseLine("| G | C |") {
-            #expect(bars.count == 2)
-        } else {
-            Issue.record("Expected bars line")
-        }
+    @Test func pipeLineProducesBars() {
+        let bars = parser.parseBarsFromLine("| G | C |")
+        #expect(bars.count == 2)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[1].chords.map(\.text) == ["C"])
     }
 
-    @Test func detectsBarLineMultipleChordsInABar() {
-        if case .bars(let bars) = parser.parseLine("| G C | G C |") {
-            #expect(bars.count == 2)
-        } else {
-            Issue.record("Expected bars line")
-        }
+    @Test func pipeLineMultipleChordsPerBar() {
+        let bars = parser.parseBarsFromLine("| G C | G C |")
+        #expect(bars.count == 2)
+        #expect(bars[0].chords.map(\.text) == ["G", "C"])
     }
 
-    @Test func detectsBarInLinesWithNoBars() {
-        if case .bars(let bars) = parser.parseLine("G C G C") {
-            #expect(bars.count == 4)
-        } else {
-            Issue.record("Expected bars line")
-        }
+    @Test func chordLineProducesSingleChordBars() {
+        let bars = parser.parseBarsFromLine("G C G C")
+        #expect(bars.count == 4)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[3].chords.map(\.text) == ["C"])
     }
 
-    @Test func detectsChordLyricLine() {
-        if case .chordLyric(let fragments) = parser.parseLine("[G]Hello") {
-            #expect(fragments.count == 1)
-        } else {
-            Issue.record("Expected chord-lyric line")
-        }
+    @Test func chordLyricLineProducesBars() {
+        let bars = parser.parseBarsFromLine("[G]Hello [Am]world")
+        #expect(bars.count == 2)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[0].lyrics == "Hello")
+        #expect(bars[1].chords.map(\.text) == ["Am"])
+        #expect(bars[1].lyrics == "world")
     }
 
-    // MARK: - Chord-Lyric Parsing
-
-    @Test func parsesChordLyricLine() {
-        let fragments = parser.parseChordLyric("[G]Amazing [C]grace")
-        #expect(fragments.count == 2)
-        #expect(fragments[0].chord?.text == "G")
-        #expect(fragments[0].text == "Amazing ")
-        #expect(fragments[1].chord?.text == "C")
-        #expect(fragments[1].text == "grace")
+    @Test func tabLineProducesNoBars() {
+        #expect(parser.parseBarsFromLine("e|-------7--10--|----").isEmpty)
     }
 
-    @Test func parsesChordLyricWithLeadingText() {
-        let fragments = parser.parseChordLyric("That [G]saved a [Em]wretch")
-        #expect(fragments.count == 3)
-        #expect(fragments[0].chord == nil)
-        #expect(fragments[0].text == "That ")
-        #expect(fragments[1].chord?.text == "G")
-        #expect(fragments[1].text == "saved a ")
-        #expect(fragments[2].chord?.text == "Em")
-        #expect(fragments[2].text == "wretch")
+    // MARK: - Chord-Lyric Bar Parsing
+
+    @Test func parsesChordLyricBars() {
+        let bars = parser.parseChordLyricBars("[G]Amazing [C]grace")
+        #expect(bars.count == 2)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[0].lyrics == "Amazing")
+        #expect(bars[1].chords.map(\.text) == ["C"])
+        #expect(bars[1].lyrics == "grace")
     }
 
-    @Test func parsesChordOnlyLine() {
-        let fragments = parser.parseChordLyric("[G]  [C]  [D]")
-        #expect(fragments.count == 3)
-        #expect(fragments[0].chord?.text == "G")
-        #expect(fragments[0].text == "  ")
-        #expect(fragments[1].chord?.text == "C")
-        #expect(fragments[1].text == "  ")
-        #expect(fragments[2].chord?.text == "D")
-        #expect(fragments[2].text == "")
+    @Test func chordLyricBarsWithLeadingText() {
+        let bars = parser.parseChordLyricBars("That [G]saved a [Em]wretch")
+        #expect(bars.count == 2)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[0].lyrics == "That saved a")
+        #expect(bars[1].chords.map(\.text) == ["Em"])
+        #expect(bars[1].lyrics == "wretch")
+    }
+
+    @Test func chordLyricBarsChordOnly() {
+        let bars = parser.parseChordLyricBars("[G]  [C]  [D]")
+        #expect(bars.count == 3)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[0].lyrics == "")
+        #expect(bars[1].chords.map(\.text) == ["C"])
+        #expect(bars[1].lyrics == "")
+        #expect(bars[2].chords.map(\.text) == ["D"])
+        #expect(bars[2].lyrics == "")
     }
 
     @Test func handlesUnclosedBracket() {
-        let fragments = parser.parseChordLyric("[G]Hello [broken")
-        #expect(fragments.count == 1)
-        #expect(fragments[0].chord?.text == "G")
-        #expect(fragments[0].text == "Hello [broken")
+        let bars = parser.parseChordLyricBars("[G]Hello [broken")
+        #expect(bars.count == 1)
+        #expect(bars[0].chords.map(\.text) == ["G"])
+        #expect(bars[0].lyrics == "Hello [broken")
     }
 
-    // MARK: - Bar Parsing
+    // MARK: - Pipe Bar Parsing
 
-    @Test func parsesSimpleBarLine() {
-        let bars = parser.parseBars("| G | Am | C | D |")
+    @Test func parsesSimplePipeBars() {
+        let bars = parser.parsePipeBars("| G | Am | C | D |")
         #expect(bars.count == 4)
         #expect(bars[0].chords.map(\.text) == ["G"])
         #expect(bars[1].chords.map(\.text) == ["Am"])
@@ -163,15 +165,15 @@ struct ChordProParserTests {
         #expect(bars[3].chords.map(\.text) == ["D"])
     }
 
-    @Test func parsesMultipleChordsPerBar() {
-        let bars = parser.parseBars("| G C | Am D |")
+    @Test func parsesMultipleChordsPerPipeBar() {
+        let bars = parser.parsePipeBars("| G C | Am D |")
         #expect(bars.count == 2)
         #expect(bars[0].chords.map(\.text) == ["G", "C"])
         #expect(bars[1].chords.map(\.text) == ["Am", "D"])
     }
 
-    @Test func parsesBarLineWithoutLeadingBar() {
-        let bars = parser.parseBars("G | Am | C | D")
+    @Test func parsesPipeBarsWithoutLeadingPipe() {
+        let bars = parser.parsePipeBars("G | Am | C | D")
         #expect(bars.count == 4)
         #expect(bars[0].chords.map(\.text) == ["G"])
         #expect(bars[3].chords.map(\.text) == ["D"])
@@ -201,33 +203,25 @@ struct ChordProParserTests {
         #expect(song.sections[2].header == "Chorus")
     }
 
-    @Test func introSectionContainsBarLine() {
+    @Test func introSectionContainsBars() {
         let input = """
         [Intro]
         | G | C | G | D |
         """
         let song = parser.parse(input)
-        let introLines = song.sections[0].lines
-        if case .bars(let bars) = introLines[0] {
-            #expect(bars.count == 4)
-        } else {
-            Issue.record("Expected bar line in intro")
-        }
+        #expect(song.sections[0].bars.count == 4)
+        #expect(song.sections[0].bars[0].chords.map(\.text) == ["G"])
     }
 
-    @Test func verseSectionContainsChordLyrics() {
+    @Test func verseSectionContainsChordLyricBars() {
         let input = """
         [Verse 1]
         [G]Amazing [C]grace
         """
         let song = parser.parse(input)
-        let verseLines = song.sections[0].lines
-        if case .chordLyric(let fragments) = verseLines[0] {
-            #expect(fragments[0].chord?.text == "G")
-            #expect(fragments[0].text == "Amazing ")
-        } else {
-            Issue.record("Expected chord-lyric line in verse")
-        }
+        #expect(song.sections[0].bars.count == 2)
+        #expect(song.sections[0].bars[0].chords.map(\.text) == ["G"])
+        #expect(song.sections[0].bars[0].lyrics == "Amazing")
     }
 
     @Test func linesBeforeAnySectionGetImplicitSection() {
@@ -240,27 +234,13 @@ struct ChordProParserTests {
         let song = parser.parse(input)
         #expect(song.sections.count == 2)
         #expect(song.sections[0].header == "")
-        #expect(song.sections[0].lines.count == 2)
+        #expect(song.sections[0].bars.count == 2)
         #expect(song.sections[1].header == "Verse 1")
     }
 
-    @Test func emptyInputProducesOneSection() {
+    @Test func emptyInputProducesNoSections() {
         let song = parser.parse("")
-        #expect(song.sections.count == 1)
-        #expect(song.sections[0].lines == [.empty])
-    }
-
-    @Test func preservesEmptyLinesBetweenContent() {
-        let input = """
-        [Verse 1]
-        [G]Line one
-
-        [G]Line two
-        """
-        let song = parser.parse(input)
-        let lines = song.sections[0].lines
-        #expect(lines.count == 3)
-        #expect(lines[1] == .empty)
+        #expect(song.sections.isEmpty)
     }
 
     // MARK: - Chord Quality Validation
@@ -309,12 +289,6 @@ struct ChordProParserTests {
         #expect(parser.isTabLine("Watching her") == false)
     }
 
-    @Test func parsesTabLine() {
-        let tab = parser.parseTabLine("e|-------7--10--7----|----")
-        #expect(tab.string == "e")
-        #expect(tab.content == "|-------7--10--7----|----")
-    }
-
     // MARK: - Chord Line Detection
 
     @Test func detectsChordLines() {
@@ -345,17 +319,17 @@ struct ChordProParserTests {
         #expect(chords.map(\.text) == ["B"])
     }
 
-    // MARK: - Parenthesized Chords in Bars
+    // MARK: - Parenthesized Chords in Pipe Bars
 
-    @Test func parsesParenthesizedChordsInBars() {
-        let bars = parser.parseBars("|(B) A  | B  A  | B  A  |")
+    @Test func parsesParenthesizedChordsInPipeBars() {
+        let bars = parser.parsePipeBars("|(B) A  | B  A  | B  A  |")
         #expect(bars.count == 3)
         #expect(bars[0].chords.map(\.text) == ["B", "A"])
         #expect(bars[1].chords.map(\.text) == ["B", "A"])
     }
 
-    @Test func barLineIgnoresRepeatMarker() {
-        let bars = parser.parseBars("| B  A  | B  A  | x2")
+    @Test func pipeBarIgnoresRepeatMarker() {
+        let bars = parser.parsePipeBars("| B  A  | B  A  | x2")
         #expect(bars.count == 2)
         #expect(bars[0].chords.map(\.text) == ["B", "A"])
     }
@@ -412,7 +386,7 @@ struct ChordProParserTests {
       Feel the fever   of my doom
     F#     E        F#
        Falling falling
-                E
+                    E
     Through the floor
     F#              E      F#       E      B
        I'm knocking on the Devil's door, yeah
@@ -481,93 +455,29 @@ struct ChordProParserTests {
         ])
     }
 
-    @Test func afterDarkIntroHasTabLines() {
+    @Test func afterDarkIntroBarCount() {
         let song = parser.parse(Self.afterDark)
         let intro = song.sections[0]
-        let tabLines = intro.lines.filter {
-            if case .tab = $0 { return true }
-            return false
-        }
-        #expect(tabLines.count == 6)
+        #expect(intro.bars.count == 8)
     }
 
-    @Test func afterDarkIntroTabStrings() {
+    @Test func afterDarkIntroFirstBarIsParenthesizedChord() {
         let song = parser.parse(Self.afterDark)
         let intro = song.sections[0]
-        let tabStrings = intro.lines.compactMap { line -> String? in
-            if case .tab(let tab) = line { return tab.string }
-            return nil
-        }
-        #expect(tabStrings == ["e", "B", "G", "D", "A", "E"])
-    }
-
-    @Test func afterDarkIntroHasBarLines() {
-        let song = parser.parse(Self.afterDark)
-        let intro = song.sections[0]
-        let barLines = intro.lines.compactMap { line -> [Bar]? in
-            if case .bars(let bars) = line { return bars }
-            return nil
-        }
-        #expect(barLines.count == 3)
-        #expect(barLines[0].count == 1)
-        #expect(barLines[1].count == 4)
-        #expect(barLines[2].count == 3)
-    }
-
-    @Test func afterDarkIntroHasParenthesizedChord() {
-        let song = parser.parse(Self.afterDark)
-        let intro = song.sections[0]
-        let barLines = intro.lines.compactMap { line -> [Bar]? in
-            if case .bars(let bars) = line { return bars }
-            return nil
-        }
-        #expect(barLines[0].count == 1)
-        #expect(barLines[0][0].chords.map(\.text) == ["B"])
-    }
-
-    @Test func afterDarkVerse1Structure() {
-        let song = parser.parse(Self.afterDark)
-        let verse = song.sections[1]
-        let lineTypes = verse.lines.map { line -> String in
-            switch line {
-            case .bars: return "bars"
-            case .lyrics: return "lyrics"
-            case .empty: return "empty"
-            case .tab: return "tab"
-            case .chordLyric: return "chordLyric"
-            }
-        }
-        #expect(lineTypes == [
-            "bars", "lyrics",
-            "bars", "lyrics",
-            "bars", "lyrics",
-            "bars", "lyrics",
-            "bars", "lyrics",
-            "empty"
-        ])
+        #expect(intro.bars[0].chords.map(\.text) == ["B"])
     }
 
     @Test func afterDarkVerse1Chords() {
         let song = parser.parse(Self.afterDark)
         let verse = song.sections[1]
-        let allChords = verse.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(allChords[0].map(\.text) == ["B", "A", "B"])
-        #expect(allChords[1].map(\.text) == ["A", "B", "A"])
-        #expect(allChords[2].map(\.text) == ["B"])
-        #expect(allChords[3].map(\.text) == ["A", "E"])
-        #expect(allChords[4].map(\.text) == ["F#", "B"])
+        let allChords = verse.bars.flatMap(\.chords)
+        #expect(allChords.map(\.text) == ["B", "A", "B", "A", "B", "A", "B", "A", "E", "F#", "B"])
     }
 
     @Test func afterDarkVerse1Lyrics() {
         let song = parser.parse(Self.afterDark)
         let verse = song.sections[1]
-        let lyrics = verse.lines.compactMap { line -> String? in
-            if case .lyrics(let text) = line { return text }
-            return nil
-        }
+        let lyrics = verse.bars.filter { $0.chords.isEmpty }.map(\.lyrics)
         #expect(lyrics == [
             "Watching her",
             "Strolling in the night",
@@ -577,34 +487,25 @@ struct ChordProParserTests {
         ])
     }
 
-    @Test func afterDarkInterludeHasParenthesizedBar() {
+    @Test func afterDarkInterludeHasParenthesizedBarChords() {
         let song = parser.parse(Self.afterDark)
         let interlude = song.sections[2]
-        if case .bars(let bars) = interlude.lines[0] {
-            #expect(bars.count == 4)
-            #expect(bars[0].chords.map(\.text) == ["B", "A"])
-        } else {
-            Issue.record("Expected bar line in interlude")
-        }
+        #expect(interlude.bars.count == 4)
+        #expect(interlude.bars[0].chords.map(\.text) == ["B", "A"])
     }
 
-    @Test func afterDarkBridgeHasFiveChordBar() {
+    @Test func afterDarkBridgeEndsWith5Chords() {
         let song = parser.parse(Self.afterDark)
         let bridge = song.sections[5]
-        let chordLines = bridge.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(chordLines.last?.map(\.text) == ["F#", "E", "F#", "E", "B"])
+        let chordBars = bridge.bars.filter { !$0.chords.isEmpty }
+        let lastFiveChords = chordBars.suffix(5).flatMap(\.chords).map(\.text)
+        #expect(lastFiveChords == ["F#", "E", "F#", "E", "B"])
     }
 
     @Test func afterDarkVerse3HasF7sharp() {
         let song = parser.parse(Self.afterDark)
         let verse3 = song.sections[7]
-        let allChords = verse3.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }.flatMap { $0 }
+        let allChords = verse3.bars.flatMap(\.chords)
         let f7sharp = allChords.first { $0.text == "F#7" }
         #expect(f7sharp != nil)
         #expect(f7sharp?.root == "F#")
@@ -614,27 +515,18 @@ struct ChordProParserTests {
     @Test func afterDarkOutroHasB7sus2() {
         let song = parser.parse(Self.afterDark)
         let outro = song.sections[11]
-        let allChords = outro.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }.flatMap { $0 }
+        let allChords = outro.bars.flatMap(\.chords)
         let b7sus2 = allChords.first { $0.text == "B7sus2" }
         #expect(b7sus2 != nil)
         #expect(b7sus2?.root == "B")
         #expect(b7sus2?.quality == "7sus2")
     }
 
-    @Test func afterDarkInstrumentalHasSingleChordBars() {
+    @Test func afterDarkInstrumentalHasSingleChordEBars() {
         let song = parser.parse(Self.afterDark)
         let instrumental = song.sections[8]
-        let barLines = instrumental.lines.compactMap { line -> [Bar]? in
-            if case .bars(let bars) = line { return bars }
-            return nil
-        }
-        let singleChordBars = barLines.first { bars in
-            bars.contains { $0.chords.count == 1 && $0.chords[0].text == "E" }
-        }
-        #expect(singleChordBars != nil)
+        let eBars = instrumental.bars.filter { $0.chords.count == 1 && $0.chords[0].text == "E" }
+        #expect(!eBars.isEmpty)
     }
 
     // MARK: - Pure Chord Chart
@@ -695,14 +587,11 @@ struct ChordProParserTests {
         ])
     }
 
-    @Test func chordChartAllContentLinesAreChords() {
+    @Test func chordChartAllBarsHaveChords() {
         let song = parser.parse(Self.chordChart)
         for section in song.sections {
-            for line in section.lines {
-                switch line {
-                case .bars, .empty: break
-                default: Issue.record("Unexpected line type in section '\(section.header)': \(line)")
-                }
+            for bar in section.bars {
+                #expect(!bar.chords.isEmpty, "Expected chords in bar of section '\(section.header)'")
             }
         }
     }
@@ -710,72 +599,51 @@ struct ChordProParserTests {
     @Test func chordChartIntroProgression() {
         let song = parser.parse(Self.chordChart)
         let intro = song.sections[0]
-        let chordLines = intro.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(chordLines.count == 1)
-        #expect(chordLines[0].map(\.text) == ["Am", "D", "Am", "D"])
+        let allChords = intro.bars.flatMap(\.chords)
+        #expect(allChords.map(\.text) == ["Am", "D", "Am", "D"])
     }
 
     @Test func chordChartVerse1Progressions() {
         let song = parser.parse(Self.chordChart)
         let verse = song.sections[1]
-        let chordLines = verse.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(chordLines.count == 3)
-        #expect(chordLines[0].map(\.text) == ["Am", "D", "Am", "D"])
-        #expect(chordLines[1].map(\.text) == ["Am", "Dm", "G", "Dm"])
-        #expect(chordLines[2].map(\.text) == ["Am", "D", "Am"])
+        let allChords = verse.bars.flatMap(\.chords)
+        #expect(allChords.map(\.text) == [
+            "Am", "D", "Am", "D",
+            "Am", "Dm", "G", "Dm",
+            "Am", "D", "Am"
+        ])
     }
 
-    @Test func chordChartBridgeHasFiveChordsOnOneLine() {
+    @Test func chordChartBridgeProgressions() {
         let song = parser.parse(Self.chordChart)
         let bridge = song.sections[3]
-        let chordLines = bridge.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(chordLines[0].map(\.text) == ["F", "G", "C", "Am", "F"])
-        #expect(chordLines[1].map(\.text) == ["G", "C", "F", "G"])
-        #expect(chordLines[2].map(\.text) == ["C", "Am"])
+        let allChords = bridge.bars.flatMap(\.chords)
+        #expect(allChords.map(\.text) == [
+            "F", "G", "C", "Am", "F",
+            "G", "C", "F", "G",
+            "C", "Am"
+        ])
     }
 
     @Test func chordChartRepeatedSectionsMatch() {
         let song = parser.parse(Self.chordChart)
         let choruses = song.sections.filter { $0.header == "Chorus" }
         #expect(choruses.count == 3)
-        let chorusChords = choruses.map { section in
-            section.lines.compactMap { line -> [Chord]? in
-                if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-                return nil
-            }
-        }
-        #expect(chorusChords[0] == chorusChords[1])
-        #expect(chorusChords[1] == chorusChords[2])
+        #expect(choruses[0] == choruses[1])
+        #expect(choruses[1] == choruses[2])
     }
 
-    @Test func chordChartOutroHasThreeIdenticalLines() {
+    @Test func chordChartOutroHasThreeRepetitions() {
         let song = parser.parse(Self.chordChart)
         let outro = song.sections[8]
-        let chordLines = outro.lines.compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }
-        #expect(chordLines.count == 3)
-        #expect(chordLines[0] == chordLines[1])
-        #expect(chordLines[1] == chordLines[2])
-        #expect(chordLines[0].map(\.text) == ["Am", "D", "Am", "D"])
+        #expect(outro.bars.count == 12)
+        let pattern = outro.bars.prefix(4).flatMap(\.chords).map(\.text)
+        #expect(pattern == ["Am", "D", "Am", "D"])
     }
 
     @Test func chordChartMinorChordsParseCorrectly() {
         let song = parser.parse(Self.chordChart)
-        let allChords = song.sections.flatMap(\.lines).compactMap { line -> [Chord]? in
-            if case .bars(let bars) = line { return bars.flatMap(\.chords) }
-            return nil
-        }.flatMap { $0 }
+        let allChords = song.sections.flatMap(\.bars).flatMap(\.chords)
         let dm = allChords.first { $0.text == "Dm" }
         #expect(dm?.root == "D")
         #expect(dm?.quality == "m")
@@ -783,4 +651,50 @@ struct ChordProParserTests {
         #expect(am?.root == "A")
         #expect(am?.quality == "m")
     }
+    
+    static let batmanChart = """
+    [Intro]
+    | G | G | G | G | C | C | G | G | D | C | G | D
+
+    [Bat Verse]
+    G G G G C C G G D C G D
+
+    [Bat Chorus]
+    G G G G C C G G D C G D
+
+    [Bat Verse]
+    G G G G C C G G D C G D
+
+    [Bat Chorus]
+    G G G G C C G G D C G D
+
+    [Wipe Verse]
+    G G G G C C G G D C G D
+
+    [Wipe Solo]
+    G G G G C C G G D C G D
+
+    [Wipe Chorus]
+    G G G G C C G G D C G D
+
+    [Bat Verse]
+    G G G G C C G G D C G D
+
+    [Bat Chorus]
+    G G G G C C G G D C G D
+
+    [Bat Chorus]
+    G G G G C C G G D C G D
+    """
+
+    @Test func batmanChartHasCorrectSections() {
+        let song = parser.parse(Self.batmanChart)
+        let headers = song.sections.map(\.header)
+        #expect(headers == [
+            "Intro", "Bat Verse", "Bat Chorus", "Bat Verse",
+            "Bat Chorus", "Wipe Verse", "Wipe Solo", "Wipe Chorus", "Bat Verse",
+            "Bat Chorus", "Bat Chorus"
+        ])
+    }
+
 }
