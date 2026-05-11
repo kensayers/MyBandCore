@@ -477,13 +477,13 @@ struct ChordProParserTests {
     @Test func afterDarkVerse1Lyrics() {
         let song = parser.parse(Self.afterDark)
         let verse = song.sections[1]
-        let lyrics = verse.bars.filter { $0.chords.isEmpty }.map(\.lyrics)
-        #expect(lyrics == [
-            "Watching her",
-            "Strolling in the night",
+        let lyricsInBars = verse.bars.map(\.lyrics)
+        #expect(lyricsInBars == [
+            "Watching", "her", "",
+            "Strolling", "in the night", "",
             "So white",
-            "Wondering,   why",
-            "It's only after dark"
+            "Wondering,", "why",
+            "It's only after", "dark"
         ])
     }
 
@@ -695,6 +695,84 @@ struct ChordProParserTests {
             "Bat Chorus", "Wipe Verse", "Wipe Solo", "Wipe Chorus", "Bat Verse",
             "Bat Chorus", "Bat Chorus"
         ])
+    }
+
+    // MARK: - Pipe Chord + Lyrics Merging
+
+    @Test func mergesPipeChordWithPipeLyrics() {
+        let input = """
+        [Verse 1]
+        | G     | C     | Am    | D     |
+        | Hello | World | How   | Now   |
+        """
+        let song = parser.parse(input)
+        let verse = song.sections[0]
+        #expect(verse.bars.count == 4)
+        #expect(verse.bars[0].chords.map(\.text) == ["G"])
+        #expect(verse.bars[0].lyrics == "Hello")
+        #expect(verse.bars[1].chords.map(\.text) == ["C"])
+        #expect(verse.bars[1].lyrics == "World")
+        #expect(verse.bars[2].chords.map(\.text) == ["Am"])
+        #expect(verse.bars[2].lyrics == "How")
+        #expect(verse.bars[3].chords.map(\.text) == ["D"])
+        #expect(verse.bars[3].lyrics == "Now")
+    }
+
+    @Test func mergesPipeChordWithMultiWordPipeLyrics() {
+        let input = """
+        [Verse 1]
+        | G C   | Am D     |
+        | Hello | Big World |
+        """
+        let song = parser.parse(input)
+        let verse = song.sections[0]
+        #expect(verse.bars.count == 2)
+        #expect(verse.bars[0].chords.map(\.text) == ["G", "C"])
+        #expect(verse.bars[0].lyrics == "Hello")
+        #expect(verse.bars[1].chords.map(\.text) == ["Am", "D"])
+        #expect(verse.bars[1].lyrics == "Big World")
+    }
+
+    @Test func mergesPipeChordWithPlainLyrics() {
+        let input = """
+        [Verse 1]
+        | G C | Am D |
+        Hello world
+        """
+        let song = parser.parse(input)
+        let verse = song.sections[0]
+        #expect(verse.bars.count == 2)
+        #expect(verse.bars[0].chords.map(\.text) == ["G", "C"])
+        #expect(verse.bars[0].lyrics == "Hello world")
+        #expect(verse.bars[1].chords.map(\.text) == ["Am", "D"])
+        #expect(verse.bars[1].lyrics == "")
+    }
+
+    @Test func pipeChordWithoutLyricsStillWorks() {
+        let input = """
+        [Intro]
+        | G | C | Am | D |
+        | G | C | Am | D |
+        """
+        let song = parser.parse(input)
+        let intro = song.sections[0]
+        #expect(intro.bars.count == 8)
+        #expect(intro.bars.allSatisfy { $0.lyrics.isEmpty })
+    }
+
+    @Test func pipeChordWithRepeatMarkerAndLyrics() {
+        let input = """
+        [Verse 1]
+        | B A | B A | x2
+        Watching her
+        """
+        let song = parser.parse(input)
+        let verse = song.sections[0]
+        #expect(verse.bars.count == 2)
+        #expect(verse.bars[0].chords.map(\.text) == ["B", "A"])
+        #expect(verse.bars[0].lyrics == "Watching her")
+        #expect(verse.bars[1].chords.map(\.text) == ["B", "A"])
+        #expect(verse.bars[1].lyrics == "")
     }
 
 }

@@ -9,9 +9,90 @@ public struct ChordProParser: Sendable {
         var sections: [Section] = []
         var currentHeader: String?
         var currentBars: [Bar] = []
+        var pendingChordRawLine: String?
+        var pendingHasPipes = false
+
+        func flushPendingChordLine() {
+            if let raw = pendingChordRawLine {
+                pendingChordRawLine = nil
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                if pendingHasPipes {
+                    currentBars.append(contentsOf: parsePipeBars(trimmed))
+                } else {
+                    currentBars.append(contentsOf: parseChordLine(trimmed).map { Bar(chords: [$0]) })
+                }
+            }
+        }
+
+        func bufferChordLine(_ rawLine: String, _ trimmed: String) {
+            if isPipeChordLine(trimmed) {
+                pendingChordRawLine = rawLine
+                pendingHasPipes = true
+            } else if isChordLine(trimmed) && !trimmed.contains("|") && !trimmed.contains("[") {
+                pendingChordRawLine = rawLine
+                pendingHasPipes = false
+            } else {
+                currentBars.append(contentsOf: parseBarsFromLine(trimmed))
+            }
+        }
 
         for rawLine in rawLines {
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+
+            if pendingChordRawLine != nil {
+                if let header = parseSectionHeader(trimmed) {
+                    flushPendingChordLine()
+                    if currentHeader != nil || !currentBars.isEmpty {
+                        sections.append(Section(header: currentHeader ?? "", bars: currentBars))
+                    }
+                    currentHeader = header
+                    currentBars = []
+                    continue
+                }
+
+                let isLyrics: Bool
+                if pendingHasPipes {
+                    isLyrics = !trimmed.isEmpty
+                        && !isTabLine(trimmed)
+                        && !trimmed.contains("[")
+                        && !isPipeChordLine(trimmed)
+                        && !(isChordLine(trimmed) && !trimmed.contains("|"))
+                } else {
+                    isLyrics = !trimmed.isEmpty
+                        && !isTabLine(trimmed)
+                        && !trimmed.contains("|")
+                        && !trimmed.contains("[")
+                        && !isChordLine(trimmed)
+                }
+
+                if isLyrics {
+                    let chordRaw = pendingChordRawLine!
+                    pendingChordRawLine = nil
+                    if pendingHasPipes {
+                        if trimmed.contains("|") {
+                            currentBars.append(contentsOf: mergePipeChordAndLyricLines(
+                                chordLine: chordRaw,
+                                lyricsLine: rawLine
+                            ))
+                        } else {
+                            var bars = parsePipeBars(chordRaw.trimmingCharacters(in: .whitespaces))
+                            if !bars.isEmpty {
+                                bars[0].lyrics = trimmed
+                            }
+                            currentBars.append(contentsOf: bars)
+                        }
+                    } else {
+                        currentBars.append(contentsOf: mergeChordAndLyricLines(
+                            chords: parseChordLineWithPositions(chordRaw),
+                            lyricsLine: rawLine
+                        ))
+                    }
+                } else {
+                    flushPendingChordLine()
+                    bufferChordLine(rawLine, trimmed)
+                }
+                continue
+            }
 
             if let header = parseSectionHeader(trimmed) {
                 if currentHeader != nil || !currentBars.isEmpty {
@@ -20,9 +101,11 @@ public struct ChordProParser: Sendable {
                 currentHeader = header
                 currentBars = []
             } else {
-                currentBars.append(contentsOf: parseBarsFromLine(trimmed))
+                bufferChordLine(rawLine, trimmed)
             }
         }
+
+        flushPendingChordLine()
 
         if currentHeader != nil || !currentBars.isEmpty {
             sections.append(Section(header: currentHeader ?? "", bars: currentBars))
@@ -110,6 +193,17 @@ public struct ChordProParser: Sendable {
             }
     }
 
+    func isPipeChordLine(_ line: String) -> Bool {
+        guard line.contains("|"), !isTabLine(line) else { return false }
+        let segments = line.split(separator: "|", omittingEmptySubsequences: true)
+        return segments.contains { segment in
+            let text = segment.trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { return false }
+            let tokens = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            return !tokens.isEmpty && tokens.allSatisfy { isStrictChordToken($0) }
+        }
+    }
+
     // MARK: - Pipe-Delimited Bars
 
     func parsePipeBars(_ line: String) -> [Bar] {
@@ -129,6 +223,97 @@ public struct ChordProParser: Sendable {
                 guard !chords.isEmpty else { return nil }
                 return Bar(chords: chords)
             }
+    }
+
+    // MARK: - Chord-Over-Lyrics Merging
+
+    func parseChordLineWithPositions(_ rawLine: String) -> [(chord: Chord, column: Int)] {
+        var results: [(chord: Chord, column: Int)] = []
+        var i = rawLine.startIndex
+        while i < rawLine.endIndex {
+            if rawLine[i] == " " {
+                i = rawLine.index(after: i)
+                continue
+            }
+            let tokenStart = i
+            while i < rawLine.endIndex && rawLine[i] != " " {
+                i = rawLine.index(after: i)
+            }
+            var tokenStr = String(rawLine[tokenStart..<i])
+            if tokenStr.hasPrefix("(") && tokenStr.hasSuffix(")") {
+                tokenStr = String(tokenStr.dropFirst().dropLast())
+            }
+            if let chord = Chord(parsing: tokenStr), Chord.isValidQuality(chord.quality) {
+                let col = rawLine.distance(from: rawLine.startIndex, to: tokenStart)
+                results.append((chord, col))
+            }
+        }
+        return results
+    }
+
+    func mergePipeChordAndLyricLines(chordLine: String, lyricsLine: String) -> [Bar] {
+        let chordSegments = chordLine.split(separator: "|", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let lyricSegments = lyricsLine.split(separator: "|", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        var bars: [Bar] = []
+        var lyricIdx = 0
+        for chordText in chordSegments {
+            let chords = chordText
+                .split(separator: " ", omittingEmptySubsequences: true)
+                .compactMap { token -> Chord? in
+                    var t = String(token)
+                    if t.hasPrefix("(") && t.hasSuffix(")") {
+                        t = String(t.dropFirst().dropLast())
+                    }
+                    return Chord(parsing: t)
+                }
+            if chords.isEmpty { continue }
+            let lyrics = lyricIdx < lyricSegments.count ? lyricSegments[lyricIdx] : ""
+            lyricIdx += 1
+            bars.append(Bar(chords: chords, lyrics: lyrics))
+        }
+        return bars
+    }
+
+    func mergeChordAndLyricLines(chords: [(chord: Chord, column: Int)], lyricsLine: String) -> [Bar] {
+        guard !chords.isEmpty else { return [] }
+
+        var wordSpans: [(word: String, start: Int)] = []
+        var i = lyricsLine.startIndex
+        while i < lyricsLine.endIndex {
+            if lyricsLine[i] == " " {
+                i = lyricsLine.index(after: i)
+                continue
+            }
+            let wordStart = i
+            while i < lyricsLine.endIndex && lyricsLine[i] != " " {
+                i = lyricsLine.index(after: i)
+            }
+            let col = lyricsLine.distance(from: lyricsLine.startIndex, to: wordStart)
+            wordSpans.append((String(lyricsLine[wordStart..<i]), col))
+        }
+
+        var barLyrics: [[String]] = Array(repeating: [], count: chords.count)
+
+        for (word, wordCol) in wordSpans {
+            var assignedIndex = 0
+            for (ci, chordInfo) in chords.enumerated() {
+                if chordInfo.column <= wordCol {
+                    assignedIndex = ci
+                } else {
+                    break
+                }
+            }
+            barLyrics[assignedIndex].append(word)
+        }
+
+        return chords.enumerated().map { (index, chordInfo) in
+            Bar(chords: [chordInfo.chord], lyrics: barLyrics[index].joined(separator: " "))
+        }
     }
 
     // MARK: - Chord-Lyric Bars
