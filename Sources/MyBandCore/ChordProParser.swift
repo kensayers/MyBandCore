@@ -5,7 +5,9 @@ public struct ChordProParser: Sendable {
     public init() {}
 
     public func parse(_ input: String) -> Song {
-        let rawLines = input.components(separatedBy: .newlines)
+        let rawLines = input.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
         var sections: [Section] = []
         var currentHeader: String?
         var currentBars: [Bar] = []
